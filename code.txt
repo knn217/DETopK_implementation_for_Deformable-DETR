@@ -1,0 +1,5 @@
+c3,4,5
+python main.py --top_K_matching --set_top_K=5 --top_K_scale=0.5 --num_feature_levels=4 --batch_size 1 --lr 6.25e-6 --coco_path DATASET/miniCOCO2017 --output_dir OUTPUT
+python main.py --top_K_matching --set_top_K=5 --top_K_scale=0.5 --num_feature_levels=4 --batch_size 1 --lr 6.25e-6 --coco_path DATASET/miniCOCO2017 --output_dir OUTPUT --resume OUTPUT/checkpoint.pth
+
+

@@ -21,8 +21,8 @@ at::Tensor ms_deform_attn_cuda_forward(
     const at::Tensor &value, 
     const at::Tensor &spatial_shapes,
     const at::Tensor &level_start_index,
-    const at::Tensor &sampling_loc,
-    const at::Tensor &attn_weight,
+    const at::Tensor &sampling_loc, // sampling_loc = sampling_ponts + sampling offset
+    const at::Tensor &attn_weight,  //
     const int im2col_step)
 {
     AT_ASSERTM(value.is_contiguous(), "value tensor has to be contiguous");

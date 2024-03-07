@@ -96,6 +96,12 @@ def get_args_parser():
                         help="L1 box coefficient in the matching cost")
     parser.add_argument('--set_cost_giou', default=2, type=float,
                         help="giou box coefficient in the matching cost")
+    parser.add_argument('--top_K_matching', action='store_true',
+                        help="change bipartite matching to top N matching")
+    parser.add_argument('--set_top_K', default=1, type=int,
+                        help="Match 1 groundtruth to N closest predictions")
+    parser.add_argument('--top_K_scale', default=0.5, type=float,
+                        help="Scale Top N loss down from main bipartite Loss")
 
     # * Loss coefficients
     parser.add_argument('--mask_loss_coef', default=1, type=float)
@@ -142,7 +148,9 @@ def main(args):
     np.random.seed(seed)
     random.seed(seed)
 
-    model, criterion, postprocessors = build_model(args)
+    # ********************************************************************
+    model, criterion, postprocessors = build_model(args)  # deformable_detr.py return
+    # ********************************************************************
     model.to(device)
 
     model_without_ddp = model
@@ -254,6 +262,9 @@ def main(args):
                 lr_scheduler.base_lrs = list(map(lambda group: group['initial_lr'], optimizer.param_groups))
             lr_scheduler.step(lr_scheduler.last_epoch)
             args.start_epoch = checkpoint['epoch'] + 1
+        
+        #--------------------------------------------------------------------------------------------------------------------------------------------------------
+        """
         # check the resumed model
         if not args.eval:
             test_stats, coco_evaluator = evaluate(
@@ -266,6 +277,8 @@ def main(args):
         if args.output_dir:
             utils.save_on_master(coco_evaluator.coco_eval["bbox"].eval, output_dir / "eval.pth")
         return
+    """
+    #-------------------------------------------------------------------------------------------------------------------------------------------------------------
 
     print("Start training")
     start_time = time.time()
@@ -288,6 +301,8 @@ def main(args):
                     'epoch': epoch,
                     'args': args,
                 }, checkpoint_path)
+
+        #-------------------------------------------------------------------------------------------------------------------------------------------------------
 
         test_stats, coco_evaluator = evaluate(
             model, criterion, postprocessors, data_loader_val, base_ds, device, args.output_dir
@@ -312,6 +327,8 @@ def main(args):
                     for name in filenames:
                         torch.save(coco_evaluator.coco_eval["bbox"].eval,
                                    output_dir / "eval" / name)
+
+        #-------------------------------------------------------------------------------------------------------------------------------------------------------
 
     total_time = time.time() - start_time
     total_time_str = str(datetime.timedelta(seconds=int(total_time)))

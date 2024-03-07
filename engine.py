@@ -25,8 +25,8 @@ from datasets.data_prefetcher import data_prefetcher
 def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
                     data_loader: Iterable, optimizer: torch.optim.Optimizer,
                     device: torch.device, epoch: int, max_norm: float = 0):
-    model.train()
-    criterion.train()
+    model.train()      # set to training mode
+    criterion.train()  # set to training mode
     metric_logger = utils.MetricLogger(delimiter="  ")
     metric_logger.add_meter('lr', utils.SmoothedValue(window_size=1, fmt='{value:.6f}'))
     metric_logger.add_meter('class_error', utils.SmoothedValue(window_size=1, fmt='{value:.2f}'))
@@ -40,8 +40,9 @@ def train_one_epoch(model: torch.nn.Module, criterion: torch.nn.Module,
     # for samples, targets in metric_logger.log_every(data_loader, print_freq, header):
     for _ in metric_logger.log_every(range(len(data_loader)), print_freq, header):
         outputs = model(samples)
-        loss_dict = criterion(outputs, targets)
+        loss_dict = criterion(outputs, targets)  # get losses by forwarding criterion
         weight_dict = criterion.weight_dict
+        # *********************************************************
         losses = sum(loss_dict[k] * weight_dict[k] for k in loss_dict.keys() if k in weight_dict)
 
         # reduce losses over all GPUs for logging purposes

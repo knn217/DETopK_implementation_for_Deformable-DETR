@@ -71,16 +71,29 @@ class BackboneBase(nn.Module):
         for name, parameter in backbone.named_parameters():
             if not train_backbone or 'layer2' not in name and 'layer3' not in name and 'layer4' not in name:
                 parameter.requires_grad_(False)
+        
+        #--------------------------------------------------------------------------------------------------------------------------------------------------------
         if return_interm_layers:
             # return_layers = {"layer1": "0", "layer2": "1", "layer3": "2", "layer4": "3"}
             return_layers = {"layer2": "0", "layer3": "1", "layer4": "2"}
             self.strides = [8, 16, 32]
             self.num_channels = [512, 1024, 2048]
+        
+        #--------------------------------------------------------------------------------------------------------------------------------------------------------
         else:
+            """
+            # Use Resnet layer C5
             return_layers = {'layer4': "0"}
             self.strides = [32]
             self.num_channels = [2048]
+            """
+            # Use Resnet layer C3
+            return_layers = {'layer2': "0"}
+            self.strides = [8]
+            self.num_channels = [512]
+            
         self.body = IntermediateLayerGetter(backbone, return_layers=return_layers)
+        #--------------------------------------------------------------------------------------------------------------------------------------------------------
 
     def forward(self, tensor_list: NestedTensor):
         xs = self.body(tensor_list.tensors)

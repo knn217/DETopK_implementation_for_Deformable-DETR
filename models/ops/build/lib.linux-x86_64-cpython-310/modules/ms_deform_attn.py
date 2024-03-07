@@ -52,7 +52,7 @@ class MSDeformAttn(nn.Module):
         self.n_heads = n_heads
         self.n_points = n_points
 
-        self.sampling_offsets = nn.Linear(d_model, n_heads * n_levels * n_points * 2)  # each sampling point has 2 coords x and y
+        self.sampling_offsets = nn.Linear(d_model, n_heads * n_levels * n_points * 2)
         self.attention_weights = nn.Linear(d_model, n_heads * n_levels * n_points)
         self.value_proj = nn.Linear(d_model, d_model)
         self.output_proj = nn.Linear(d_model, d_model)
@@ -81,45 +81,28 @@ class MSDeformAttn(nn.Module):
         :param reference_points            (N, Length_{query}, n_levels, 2), range in [0, 1], top-left (0,0), bottom-right (1, 1), including padding area
                                         or (N, Length_{query}, n_levels, 4), add additional (w, h) to form reference boxes
         :param input_flatten               (N, \sum_{l=0}^{L-1} H_l \cdot W_l, C)
-        :param input_spatial_shapes        (n_levels, 2), [(H_0, W_0), (H_1, W_1), ..., (H_{L-1}, W_{L-1})]  (contains the start index for each feature map in input_flatten)
+        :param input_spatial_shapes        (n_levels, 2), [(H_0, W_0), (H_1, W_1), ..., (H_{L-1}, W_{L-1})]
         :param input_level_start_index     (n_levels, ), [0, H_0*W_0, H_0*W_0+H_1*W_1, H_0*W_0+H_1*W_1+H_2*W_2, ..., H_0*W_0+H_1*W_1+...+H_{L-1}*W_{L-1}]
         :param input_padding_mask          (N, \sum_{l=0}^{L-1} H_l \cdot W_l), True for padding elements, False for non-padding elements
 
         :return output                     (N, Length_{query}, C)
         """
-        # query == zq
-        # reference_points == pq
-        # input_flatten == x
+        N, Len_q, _ = query.shape
+        N, Len_in, _ = input_flatten.shape
+        assert (input_spatial_shapes[:, 0] * input_spatial_shapes[:, 1]).sum() == Len_in
 
-        N, Len_q, _ = query.shape  # for encoder: src + ops_embed (shape [batch_size, sum_H*W, d_model])
-        N, Len_in, _ = input_flatten.shape  # for encoder: src (shape [batch_size, sum_H*W, d_model])
-        assert (input_spatial_shapes[:, 0] * input_spatial_shapes[:, 1]).sum() == Len_in  # check if Len_in == sum_H*W
-
-        # for encoder: input_flatten = src (called "x" in the docs, page 5 and 6)
-        value = self.value_proj(input_flatten)  # W'm * x^l (MSDeformAttn equation in the docs page 5, 6)
+        value = self.value_proj(input_flatten)
         if input_padding_mask is not None:
             value = value.masked_fill(input_padding_mask[..., None], float(0))
         value = value.view(N, Len_in, self.n_heads, self.d_model // self.n_heads)
-        # for encoder, value's shape: [batch_size, sum_H*W, n_heads, d_model//n_heads]
-
-        # query go through a linear_layer to output sampling_offsets (Figure 2 in the docs)
         sampling_offsets = self.sampling_offsets(query).view(N, Len_q, self.n_heads, self.n_levels, self.n_points, 2)
-        # delta_p_mlqk shape: [N, Len_q, self.n_heads, self.n_levels, self.n_points, 2]
-
-        # query go through a linear_layer and a softmax layer to output sampling_offsets (Figure 2 in the docs)
         attention_weights = self.attention_weights(query).view(N, Len_q, self.n_heads, self.n_levels * self.n_points)
         attention_weights = F.softmax(attention_weights, -1).view(N, Len_q, self.n_heads, self.n_levels, self.n_points)
-        # A_mlqk shape: [N, Len_q, self.n_heads, self.n_levels, self.n_points]
-
         # N, Len_q, n_heads, n_levels, n_points, 2
-        # reference_points for encoder: [batch_size, sum_H*W, num_levels, 2] (docs page 5 and 6, Multi-scale Deformable Attention module)
         if reference_points.shape[-1] == 2:
             offset_normalizer = torch.stack([input_spatial_shapes[..., 1], input_spatial_shapes[..., 0]], -1)
             sampling_locations = reference_points[:, :, None, :, None, :] \
                                  + sampling_offsets / offset_normalizer[None, None, None, :, None, :]
-            # shape: [N, Len_q, self.n_heads, self.n_levels, self.n_points, 2]
-            # sampling location = p^q + delta_p_mlqk (docs page 5 and 6)
-
         elif reference_points.shape[-1] == 4:
             sampling_locations = reference_points[:, :, None, :, None, :2] \
                                  + sampling_offsets / self.n_points * reference_points[:, :, None, :, None, 2:] * 0.5
@@ -128,8 +111,5 @@ class MSDeformAttn(nn.Module):
                 'Last dim of reference_points must be 2 or 4, but get {} instead.'.format(reference_points.shape[-1]))
         output = MSDeformAttnFunction.apply(
             value, input_spatial_shapes, input_level_start_index, sampling_locations, attention_weights, self.im2col_step)
-        # output shape: []
-
-        # Wm * [sum(...)] (MSDeformAttn equation in the docs page 5, 6)
         output = self.output_proj(output)
         return output
