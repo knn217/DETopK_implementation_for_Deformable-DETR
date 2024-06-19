@@ -140,18 +140,15 @@ class DeformableDETR(nn.Module):
             samples = nested_tensor_from_tensor_list(samples)  # turns "samples" into a Nestedtensor using the tensor list from "samples"
 
         """ After making sure "samples" is a Nestedtensor """
-        features, pos = self.backbone(samples)  # look into joiner in backbone.py
+        features, pos = self.backbone(samples)  # The output is out, pos (in "backbone.py" line 132)
 
         srcs = []
         masks = []
-
-        # A bit different from DETR since multi-scale feature levels
         for l, feat in enumerate(features):  # l is the assigned number after enumerate, feat is each feature assigned a number in "features"
-            src, mask = feat.decompose()  # get encoder's input "src" and its key padding "mask"
+            src, mask = feat.decompose()
             srcs.append(self.input_proj[l](src))
             masks.append(mask)
             assert mask is not None
-
         if self.num_feature_levels > len(srcs):
             _len_srcs = len(srcs)
             for l in range(_len_srcs, self.num_feature_levels):
@@ -167,10 +164,8 @@ class DeformableDETR(nn.Module):
                 pos.append(pos_l)
 
         query_embeds = None
-
         if not self.two_stage:
             query_embeds = self.query_embed.weight
-
         hs, init_reference, inter_references, enc_outputs_class, enc_outputs_coord_unact = self.transformer(srcs, masks, pos, query_embeds)
 
         outputs_classes = []
@@ -256,11 +251,8 @@ class SetCriterion(nn.Module):
         target_classes_onehot.scatter_(2, target_classes.unsqueeze(-1), 1)
 
         target_classes_onehot = target_classes_onehot[:,:,:-1]
-
-        # The actual loss_labels, alpha is the factor to balance no_object class
         loss_ce = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes, alpha=self.focal_alpha, gamma=2) * src_logits.shape[1]
         losses = {'loss_ce': loss_ce}
-        # -----------------------------------------------------------------------------------------------------------
 
         if log:
             # TODO this should probably be a separate loss, not hacked in this one here
@@ -349,11 +341,9 @@ class SetCriterion(nn.Module):
         target_classes_onehot.scatter_(2, target_classes.unsqueeze(-1), 1)
 
         target_classes_onehot = target_classes_onehot[:,:,:-1]
-        # The actual Loss k labels
-        #loss_ce_k = sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes_k, alpha=self.focal_alpha, gamma=2) * src_logits.shape[1]  # use cross entropy #****************
+        #*************************************************************************
         loss_ce_k = torch.exp(-sigmoid_focal_loss(src_logits, target_classes_onehot, num_boxes_k, alpha=self.focal_alpha, gamma=2) * src_logits.shape[1])  # use cross entropy
         losses = {'loss_ce_k': loss_ce_k}  # loss_cost_entropy
-        # -----------------------------------------------------------------
 
         return losses
 
@@ -367,18 +357,17 @@ class SetCriterion(nn.Module):
         src_boxes = outputs['pred_boxes'][idx]
         target_boxes = torch.cat([t['boxes'][i] for t, (_, i) in zip(targets, indices_k)], dim=0)
 
-        loss_bbox = F.l1_loss(src_boxes, target_boxes, reduction='none')
+        #*************************************************************************
+        loss_bbox = torch.exp(-F.l1_loss(src_boxes, target_boxes, reduction='none'))
 
         losses = {}
-        #losses['loss_bbox_k'] = loss_bbox.sum() / num_boxes_k
-        losses['loss_bbox_k'] = torch.exp(-loss_bbox.sum() / num_boxes_k)  #********************************************
+        losses['loss_bbox_k'] = loss_bbox.sum() / num_boxes_k
 
-        loss_giou = 1 - torch.diag(box_ops.generalized_box_iou(
+        #*************************************************************************
+        loss_giou = torch.exp(-1 + torch.diag(box_ops.generalized_box_iou(
             box_ops.box_cxcywh_to_xyxy(src_boxes),
-            box_ops.box_cxcywh_to_xyxy(target_boxes)))
-        #losses['loss_giou_k'] = loss_giou.sum() / num_boxes_k
-        losses['loss_giou_k'] = torch.exp(-loss_giou.sum() / num_boxes_k)  #********************************************
-
+            box_ops.box_cxcywh_to_xyxy(target_boxes))))
+        losses['loss_giou_k'] = loss_giou.sum() / num_boxes_k
         return losses
 
     def _get_src_permutation_idx(self, indices):
@@ -501,7 +490,7 @@ class PostProcess(nn.Module):
         assert target_sizes.shape[1] == 2
 
         prob = out_logits.sigmoid()
-        topk_values, topk_indexes = torch.topk(prob.view(out_logits.shape[0], -1), 100, dim=1)  # get the top 100 predictions
+        topk_values, topk_indexes = torch.topk(prob.view(out_logits.shape[0], -1), 100, dim=1)
         scores = topk_values
         topk_boxes = topk_indexes // out_logits.shape[2]
         labels = topk_indexes % out_logits.shape[2]
@@ -566,12 +555,12 @@ def build(args):
     if args.top_K_matching:
         args_top_k = args.set_top_K
         top_K_scale = args.top_K_scale
-        #weight_dict['loss_bbox_k'] = args.bbox_loss_coef * top_K_scale / (args_top_k**2)
-        #weight_dict['loss_giou_k'] = args.giou_loss_coef * top_K_scale / (args_top_k**2)
-        #weight_dict['loss_ce_k'] = args.cls_loss_coef * top_K_scale / (args_top_k**2)
-        weight_dict['loss_bbox_k'] = args.bbox_loss_coef
-        weight_dict['loss_giou_k'] = args.giou_loss_coef
-        weight_dict['loss_ce_k'] = args.cls_loss_coef
+        #weight_dict['loss_ce_k'] = args.K_cls_loss_coef * top_K_scale / (args_top_k)
+        #weight_dict['loss_bbox_k'] = args.K_bbox_loss_coef * top_K_scale / (args_top_k)
+        #weight_dict['loss_giou_k'] = args.K_giou_loss_coef * top_K_scale / (args_top_k)
+        weight_dict['loss_ce_k'] = args.K_cls_loss_coef * top_K_scale 
+        weight_dict['loss_bbox_k'] = args.K_bbox_loss_coef * top_K_scale 
+        weight_dict['loss_giou_k'] = args.K_giou_loss_coef * top_K_scale 
     #*********************************************************************************
 
     if args.masks:

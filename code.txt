@@ -1,5 +1,23 @@
 c3,4,5
-python main.py --top_K_matching --set_top_K=5 --top_K_scale=0.5 --num_feature_levels=4 --batch_size 1 --lr 6.25e-6 --coco_path DATASET/miniCOCO2017 --output_dir OUTPUT
-python main.py --top_K_matching --set_top_K=5 --top_K_scale=0.5 --num_feature_levels=4 --batch_size 1 --lr 6.25e-6 --coco_path DATASET/miniCOCO2017 --output_dir OUTPUT --resume OUTPUT/checkpoint.pth
+python main.py --top_K_matching --set_top_K=5 --top_K_matching_method='closest' --top_K_scale=0.5 --num_feature_levels=4 --batch_size 1 --lr 6.25e-6 --coco_path DATASET/miniCOCO2017 --output_dir OUTPUT
+python main.py --top_K_matching --set_top_K=5 --top_K_matching_method='closest' --top_K_scale=0.5 --num_feature_levels=4 --batch_size 1 --lr 6.25e-6 --coco_path DATASET/miniCOCO2017 --output_dir OUTPUT --resume OUTPUT/checkpoint.pth
 
+c5
+python main.py --top_K_matching --set_top_K=5 --top_K_matching_method='closest' --top_K_scale=0.5 --num_feature_levels=1 --batch_size 1 --lr 6.25e-6 --coco_path DATASET/miniCOCO2017 --output_dir OUTPUT
+python main.py --top_K_matching --set_top_K=5 --top_K_matching_method='closest' --top_K_scale=0.5 --num_feature_levels=1 --batch_size 1 --lr 6.25e-6 --coco_path DATASET/miniCOCO2017 --output_dir OUTPUT --resume OUTPUT/checkpoint.pth
+
+c3
+python main.py --top_K_matching --set_top_K=5 --top_K_matching_method='closest' --top_K_scale=0.5 --num_feature_levels=1 --batch_size 2 --lr 1.25e-5 --coco_path DATASET/miniCOCO2017 --output_dir OUTPUT
+python main.py --top_K_matching --set_top_K=5 --top_K_matching_method='closest' --top_K_scale=0.5 --num_feature_levels=1 --batch_size 2 --lr 1.25e-5 --coco_path DATASET/miniCOCO2017 --output_dir OUTPUT --resume OUTPUT/checkpoint.pth
+
+RUNNING: 
+new_algorithm_c3,4,5_top5_scale_0.05(closest, no loss_ce_k, raw scale)
+
+
+FAILED: 
+new_algorithm_c3,4,5_top5_scale_0.5(closest, no loss_ce_k, raw scale)
+
+PAUSED: 
+
+COMPLETED: 
 

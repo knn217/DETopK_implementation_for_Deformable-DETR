@@ -81,7 +81,7 @@ class BackboneBase(nn.Module):
         
         #--------------------------------------------------------------------------------------------------------------------------------------------------------
         else:
-            """
+            
             # Use Resnet layer C5
             return_layers = {'layer4': "0"}
             self.strides = [32]
@@ -91,7 +91,7 @@ class BackboneBase(nn.Module):
             return_layers = {'layer2': "0"}
             self.strides = [8]
             self.num_channels = [512]
-            
+            """
         self.body = IntermediateLayerGetter(backbone, return_layers=return_layers)
         #--------------------------------------------------------------------------------------------------------------------------------------------------------
 

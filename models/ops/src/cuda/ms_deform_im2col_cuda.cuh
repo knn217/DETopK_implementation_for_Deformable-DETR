@@ -13,21 +13,18 @@
 #include <algorithm>
 #include <cstring>
 
-// These includes are in Pytorch src
-#include <ATen/ATen.h>     
+#include <ATen/ATen.h>
 #include <ATen/cuda/CUDAContext.h>
 
 #include <THC/THCAtomics.cuh>
 
-// this loop increases thead index in a block (i) by a grid until reach grid n^th
 #define CUDA_KERNEL_LOOP(i, n)                          \
   for (int i = blockIdx.x * blockDim.x + threadIdx.x;   \
       i < (n);                                          \
-      i += blockDim.x * gridDim.x)  // if not in n^th grid: move the index up 1 grid 
+      i += blockDim.x * gridDim.x)
 
 const int CUDA_NUM_THREADS = 1024;
-
-inline int GET_BLOCKS(const int N, const int num_threads) // Get number of blocks
+inline int GET_BLOCKS(const int N, const int num_threads)
 {
   return (N + num_threads - 1) / num_threads;
 }
@@ -238,11 +235,11 @@ __device__ void ms_deform_attn_col2im_bilinear_gm(const scalar_t* &bottom_data,
 
 
 template <typename scalar_t>
-__global__ void ms_deformable_im2col_gpu_kernel(const int n,                            
+__global__ void ms_deformable_im2col_gpu_kernel(const int n,
                                                 const scalar_t *data_value, 
                                                 const int64_t *data_spatial_shapes,
                                                 const int64_t *data_level_start_index, 
-                                                const scalar_t *data_sampling_loc,  // sampling_loc = sampling_ponts + sampling offset
+                                                const scalar_t *data_sampling_loc,
                                                 const scalar_t *data_attn_weight,
                                                 const int batch_size, 
                                                 const int spatial_size, 
@@ -253,28 +250,26 @@ __global__ void ms_deformable_im2col_gpu_kernel(const int n,
                                                 const int num_point,
                                                 scalar_t *data_col)
 {
-  CUDA_KERNEL_LOOP(index, n) // each loop increases the thread's index "index" by a grid until n^th grid is reached
-  {                                      // n = num_kernels = batch_size * num_query * num_heads * channels
-    int _temp = index;                   // index = blockIdx.x * blockDim.x + threadIdx.x + i * blockDim.x * gridDim.x
-    const int c_col = _temp % channels;  // feature_channel
+  CUDA_KERNEL_LOOP(index, n)
+  {
+    int _temp = index;
+    const int c_col = _temp % channels;
     _temp /= channels;
-    const int sampling_index = _temp;    // sampling_index 
-    const int m_col = _temp % num_heads; // attention_head  
+    const int sampling_index = _temp; 
+    const int m_col = _temp % num_heads;
     _temp /= num_heads;
-    const int q_col = _temp % num_query; // query
+    const int q_col = _temp % num_query;
     _temp /= num_query;
-    const int b_col = _temp;             // batch  
-    // index = [(b_col * num_query + q_col) * num_heads + m_col] * channels + c_col
-    // sampling_index = [(b_col * num_query + q_col) * num_heads + m_col]
+    const int b_col = _temp;
 
     scalar_t *data_col_ptr = data_col + index;
     int data_weight_ptr = sampling_index * num_levels * num_point;
-    int data_loc_w_ptr = data_weight_ptr << 1;  // data_loc_w_ptr = data_weight_ptr * 2
+    int data_loc_w_ptr = data_weight_ptr << 1;
     const int qid_stride = num_heads * channels;
     const int data_value_ptr_init_offset = b_col * spatial_size * qid_stride;
     scalar_t col = 0;
     
-    for (int l_col=0; l_col < num_levels; ++l_col)  // loop through levels 
+    for (int l_col=0; l_col < num_levels; ++l_col)
     {
       const int level_start_id = data_level_start_index[l_col];
       const int spatial_h_ptr = l_col << 1;
@@ -299,7 +294,7 @@ __global__ void ms_deformable_im2col_gpu_kernel(const int n,
         data_loc_w_ptr += 2;
       }
     }
-    *data_col_ptr = col;   // store col into data pointer location
+    *data_col_ptr = col;
   }
 }
 
@@ -944,12 +939,11 @@ void ms_deformable_im2col_cuda(cudaStream_t stream,
   const int num_kernels = batch_size * num_query * num_heads * channels;
   const int num_actual_kernels = batch_size * num_query * num_heads * channels;
   const int num_threads = CUDA_NUM_THREADS;
-
   ms_deformable_im2col_gpu_kernel<scalar_t>
       <<<GET_BLOCKS(num_actual_kernels, num_threads), num_threads,
-          0, stream>>>(  // using  stream will share the data below with other kernels in the same stream
-      num_kernels, data_value, data_spatial_shapes, data_level_start_index, data_sampling_loc, data_attn_weight, // these data will be shared between streams 
-      batch_size, spatial_size, num_heads, channels, num_levels, num_query, num_point, data_col);                //
+          0, stream>>>(
+      num_kernels, data_value, data_spatial_shapes, data_level_start_index, data_sampling_loc, data_attn_weight, 
+      batch_size, spatial_size, num_heads, channels, num_levels, num_query, num_point, data_col);
   
   cudaError_t err = cudaGetLastError();
   if (err != cudaSuccess)

@@ -115,11 +115,11 @@ class DeformableTransformer(nn.Module):
         return output_memory, output_proposals
 
     def get_valid_ratio(self, mask):
-        _, H, W = mask.shape  # shape: [,H,W]
+        _, H, W = mask.shape
         valid_H = torch.sum(~mask[:, :, 0], 1)
         valid_W = torch.sum(~mask[:, 0, :], 1)
-        valid_ratio_h = valid_H.float() / H  # shape:[_]
-        valid_ratio_w = valid_W.float() / W  # shape:[_]
+        valid_ratio_h = valid_H.float() / H
+        valid_ratio_w = valid_W.float() / W
         valid_ratio = torch.stack([valid_ratio_w, valid_ratio_h], -1)
         return valid_ratio
 
@@ -131,38 +131,29 @@ class DeformableTransformer(nn.Module):
         mask_flatten = []
         lvl_pos_embed_flatten = []
         spatial_shapes = []
-
-        # Different from DETR because of multi-scale feature levels
         for lvl, (src, mask, pos_embed) in enumerate(zip(srcs, masks, pos_embeds)):
-            # each feature level
-            bs, c, h, w = src.shape  # [batch_size, feature_channels(d_model), height, width]
+            bs, c, h, w = src.shape
             spatial_shape = (h, w)
             spatial_shapes.append(spatial_shape)
-            src = src.flatten(2).transpose(1, 2)  # flatten and transpose(1,2) = permute(0,2,1) -> [batch_size, H*W, d_model]
+            src = src.flatten(2).transpose(1, 2)
             mask = mask.flatten(1)
-            pos_embed = pos_embed.flatten(2).transpose(1, 2)  # flatten and transpose(1,2) = permute(0,2,1)
+            pos_embed = pos_embed.flatten(2).transpose(1, 2)
             lvl_pos_embed = pos_embed + self.level_embed[lvl].view(1, 1, -1)
             lvl_pos_embed_flatten.append(lvl_pos_embed)
             src_flatten.append(src)
             mask_flatten.append(mask)
-        # combine all feature levels of each image in the batch
         src_flatten = torch.cat(src_flatten, 1)
         mask_flatten = torch.cat(mask_flatten, 1)
         lvl_pos_embed_flatten = torch.cat(lvl_pos_embed_flatten, 1)
         spatial_shapes = torch.as_tensor(spatial_shapes, dtype=torch.long, device=src_flatten.device)
-        # since we flatten each image in the batch's feature maps into src, we need the start index of each feature map to know which one we are working on
         level_start_index = torch.cat((spatial_shapes.new_zeros((1, )), spatial_shapes.prod(1).cumsum(0)[:-1]))
         valid_ratios = torch.stack([self.get_valid_ratio(m) for m in masks], 1)
 
-        # Go through encoder
-        # memory has the same shape as src [batch_size, sum_H*W, d_model] (encoder's input and output has the same shape)
-        # we also see that encoder doesn't have Reference points as input
-        # instead, the encoder will generate Reference points from spatial_shapes(list of images' shape) and valid_ratios(from the features' masks)
-        # look into DeformableTransformerEncoder().get_reference_points() for more details
+        # encoder
         memory = self.encoder(src_flatten, spatial_shapes, level_start_index, valid_ratios, lvl_pos_embed_flatten, mask_flatten)
 
         # prepare input for decoder
-        bs, _, c = memory.shape  # memory has the same shape as src [batch_size, sum_H*W, d_model]
+        bs, _, c = memory.shape
         if self.two_stage:
             output_memory, output_proposals = self.gen_encoder_output_proposals(memory, mask_flatten, spatial_shapes)
 
@@ -179,20 +170,13 @@ class DeformableTransformer(nn.Module):
             pos_trans_out = self.pos_trans_norm(self.pos_trans(self.get_proposal_pos_embed(topk_coords_unact)))
             query_embed, tgt = torch.split(pos_trans_out, c, dim=2)
         else:
-            # query_embed was created with shape [num_queries, d_model*2] so we split it into 2 tensor with shape [num_queries, d_model]
             query_embed, tgt = torch.split(query_embed, c, dim=1)
-            # query_embed: the "object queries" 's embedding tensor
-            # tgt: the actual object queries
-
-            query_embed = query_embed.unsqueeze(0).expand(bs, -1, -1)  # shape: [batch_size, num_queries, d_model]
-            tgt = tgt.unsqueeze(0).expand(bs, -1, -1)  # shape: [batch_size, num_queries, d_model]
-            # self.reference_points() = linear_layer(d_model, 2)
-
-            # decoder's reference points taken from object queries embedding go through a linear layer + sigmoid layer
-            reference_points = self.reference_points(query_embed).sigmoid()  # reference_points shape: [batch_size, num_queries, 2]
+            query_embed = query_embed.unsqueeze(0).expand(bs, -1, -1)
+            tgt = tgt.unsqueeze(0).expand(bs, -1, -1)
+            reference_points = self.reference_points(query_embed).sigmoid()
             init_reference_out = reference_points
 
-        # Go through decoder
+        # decoder
         hs, inter_references = self.decoder(tgt, reference_points, memory,
                                             spatial_shapes, level_start_index, valid_ratios, query_embed, mask_flatten)
 
@@ -224,23 +208,18 @@ class DeformableTransformerEncoderLayer(nn.Module):
 
     @staticmethod
     def with_pos_embed(tensor, pos):
-        return tensor if pos is None else tensor + pos  # shape: [batch_size, sum_H*W, d_model]
+        return tensor if pos is None else tensor + pos
 
     def forward_ffn(self, src):
-        # ffn
         src2 = self.linear2(self.dropout2(self.activation(self.linear1(src))))
-        # add
         src = src + self.dropout3(src2)
-        # norm
         src = self.norm2(src)
         return src
 
     def forward(self, src, pos, reference_points, spatial_shapes, level_start_index, padding_mask=None):
-        # self attention         Q (not obj query), same shape as src: [batch_size, H*W, d_model]
+        # self attention
         src2 = self.self_attn(self.with_pos_embed(src, pos), reference_points, src, spatial_shapes, level_start_index, padding_mask)
-        # add
         src = src + self.dropout1(src2)
-        # norm
         src = self.norm1(src)
 
         # ffn
@@ -256,27 +235,26 @@ class DeformableTransformerEncoder(nn.Module):
         self.num_layers = num_layers
 
     @staticmethod
-    def get_reference_points(spatial_shapes, valid_ratios, device):  # for encoder: ref_points comes from spatial_shapes + valid_ratio (valid_ratio comes from masks, which comes from the feature extracted from images)
+    def get_reference_points(spatial_shapes, valid_ratios, device):
         reference_points_list = []
-        for lvl, (H_, W_) in enumerate(spatial_shapes):  # spatial_shapes is a list of H, W of each feature level
+        for lvl, (H_, W_) in enumerate(spatial_shapes):
 
             ref_y, ref_x = torch.meshgrid(torch.linspace(0.5, H_ - 0.5, H_, dtype=torch.float32, device=device),
                                           torch.linspace(0.5, W_ - 0.5, W_, dtype=torch.float32, device=device))
-            ref_y = ref_y.reshape(-1)[None] / (valid_ratios[:, None, lvl, 1] * H_)  # divide the H valid ratio of current level
-            ref_x = ref_x.reshape(-1)[None] / (valid_ratios[:, None, lvl, 0] * W_)  # divide the W valid ratio of current level
+            ref_y = ref_y.reshape(-1)[None] / (valid_ratios[:, None, lvl, 1] * H_)
+            ref_x = ref_x.reshape(-1)[None] / (valid_ratios[:, None, lvl, 0] * W_)
             ref = torch.stack((ref_x, ref_y), -1)
             reference_points_list.append(ref)
         reference_points = torch.cat(reference_points_list, 1)
-        reference_points = reference_points[:, :, None] * valid_ratios[:, None]  # multiply the valid ratio back into ref points to get the correct coord in range [0, 1]
+        reference_points = reference_points[:, :, None] * valid_ratios[:, None]
         return reference_points
 
     def forward(self, src, spatial_shapes, level_start_index, valid_ratios, pos=None, padding_mask=None):
-        output = src  # encoder's query Q (not obj query)
-        # reference_points: p^q in the docs page 5 and 6, multi-scale deformable attention module
+        output = src
         reference_points = self.get_reference_points(spatial_shapes, valid_ratios, device=src.device)
         for _, layer in enumerate(self.layers):
             output = layer(output, pos, reference_points, spatial_shapes, level_start_index, padding_mask)
-        #                        Q
+
         return output
 
 
@@ -292,7 +270,7 @@ class DeformableTransformerDecoderLayer(nn.Module):
         self.norm1 = nn.LayerNorm(d_model)
 
         # self attention
-        self.self_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)  # normal Attention module (no deformable)
+        self.self_attn = nn.MultiheadAttention(d_model, n_heads, dropout=dropout)
         self.dropout2 = nn.Dropout(dropout)
         self.norm2 = nn.LayerNorm(d_model)
 

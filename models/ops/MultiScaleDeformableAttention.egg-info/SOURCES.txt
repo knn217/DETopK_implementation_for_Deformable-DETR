@@ -2,9 +2,9 @@ setup.py
 /home/bmvt/Desktop/ChauDang/Deformable-DETR/models/ops/src/vision.cpp
 /home/bmvt/Desktop/ChauDang/Deformable-DETR/models/ops/src/cpu/ms_deform_attn_cpu.cpp
 /home/bmvt/Desktop/ChauDang/Deformable-DETR/models/ops/src/cuda/ms_deform_attn_cuda.cu
-/home/bmvt/Desktop/ChauDang/Deformable-DETR_top_k/models/ops/src/vision.cpp
-/home/bmvt/Desktop/ChauDang/Deformable-DETR_top_k/models/ops/src/cpu/ms_deform_attn_cpu.cpp
-/home/bmvt/Desktop/ChauDang/Deformable-DETR_top_k/models/ops/src/cuda/ms_deform_attn_cuda.cu
+/home/bmvt/Desktop/ChauDang/Deformable-DETR_top_K/models/ops/src/vision.cpp
+/home/bmvt/Desktop/ChauDang/Deformable-DETR_top_K/models/ops/src/cpu/ms_deform_attn_cpu.cpp
+/home/bmvt/Desktop/ChauDang/Deformable-DETR_top_K/models/ops/src/cuda/ms_deform_attn_cuda.cu
 MultiScaleDeformableAttention.egg-info/PKG-INFO
 MultiScaleDeformableAttention.egg-info/SOURCES.txt
 MultiScaleDeformableAttention.egg-info/dependency_links.txt

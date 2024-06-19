@@ -98,7 +98,9 @@ def get_args_parser():
                         help="giou box coefficient in the matching cost")
     parser.add_argument('--top_K_matching', action='store_true',
                         help="change bipartite matching to top N matching")
-    parser.add_argument('--set_top_K', default=1, type=int,
+    parser.add_argument('--top_K_matching_method', default='closest', type=str)
+
+    parser.add_argument('--set_top_K', default=10, type=int,
                         help="Match 1 groundtruth to N closest predictions")
     parser.add_argument('--top_K_scale', default=0.5, type=float,
                         help="Scale Top N loss down from main bipartite Loss")
@@ -109,6 +111,11 @@ def get_args_parser():
     parser.add_argument('--cls_loss_coef', default=2, type=float)
     parser.add_argument('--bbox_loss_coef', default=5, type=float)
     parser.add_argument('--giou_loss_coef', default=2, type=float)
+    
+    parser.add_argument('--K_cls_loss_coef', default=0, type=float)
+    parser.add_argument('--K_bbox_loss_coef', default=5, type=float)
+    parser.add_argument('--K_giou_loss_coef', default=2, type=float)
+    
     parser.add_argument('--focal_alpha', default=0.25, type=float)
 
     # dataset parameters
@@ -148,9 +155,7 @@ def main(args):
     np.random.seed(seed)
     random.seed(seed)
 
-    # ********************************************************************
-    model, criterion, postprocessors = build_model(args)  # deformable_detr.py return
-    # ********************************************************************
+    model, criterion, postprocessors = build_model(args)
     model.to(device)
 
     model_without_ddp = model

@@ -109,7 +109,8 @@ class HungarianMatcherTopN(nn.Module):
                  cost_class: float = 1,
                  cost_bbox: float = 1,
                  cost_giou: float = 1,
-                 cost_top_k: int = 1):
+                 cost_top_k: int = 1,
+                 top_K_matching_method: str = 'closest'):
         """Creates the matcher
 
         Params:
@@ -123,6 +124,7 @@ class HungarianMatcherTopN(nn.Module):
         self.cost_bbox = cost_bbox
         self.cost_giou = cost_giou
         self.cost_top_k = cost_top_k
+        self.top_K_matching_method = top_K_matching_method
         assert (cost_class != 0 or cost_bbox != 0 or cost_giou != 0) and cost_top_k !=0, "all costs cant be 0 and cost_top_k can't be 0"
 
     def forward(self, outputs, targets):
@@ -171,7 +173,7 @@ class HungarianMatcherTopN(nn.Module):
                                              box_cxcywh_to_xyxy(tgt_bbox))  # return a matrix[N, M] of giou between out_box[N] and tgt_box[M]
 
             # Final cost matrix
-            C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou  # C = [N, M] matrix (N querries, M groundtruths)
+            C = self.cost_bbox * cost_bbox + self.cost_class * cost_class + self.cost_giou * cost_giou  # C = [1, N, M] matrix (N querries, M groundtruths) for each image
             C = C.view(bs, num_queries, -1).cpu()
             sizes = [len(v["boxes"]) for v in targets]  # get a list of the number of boxes for each image in the batch
 
@@ -182,47 +184,51 @@ class HungarianMatcherTopN(nn.Module):
             no matter if these n points overlap with the ones in bipartite matching.
             These n points will be pulled toward groundtruth, but less than the bipartite matching ones (lower loss) """
             if (self.cost_top_k > 1):
-                """
-                # Method1: bipartite matching
-                concat = C
-                for _ in range(self.cost_top_k - 1):  # stack N cost matrices horizontally (to multiply groundtruths N times)
-                    concat = torch.cat((concat, C), 2)
-                D = concat
-                NUM = num_queries
-                while NUM < (sum(sizes) * self.cost_top_k):  # stack N of the matrix above vertically (if number of groundtruth > number of queries)
-                    concat = torch.cat((concat, D), 1)
-                    NUM += num_queries
-                sizes_k = list(np.array(sizes) * self.cost_top_k)
-                top_k_indices = [linear_sum_assignment(c[i]) for i, c in enumerate(concat.split(sizes_k, -1))]
-                top_k = [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in top_k_indices]
-                n = 0
-                # since cost matrix rows and columns were multiply, we % the original rows and columns to get the right coords
-                for i in top_k:  # cost matrix for each target (i) in a batch (top_k)
-                    for v in i[1]:           # get the right column (groundtruth coord)
-                        if v >= sizes[n]:
-                            v %= sizes[n]
-                    for v in i[0]:           # get the right row (query coord)
-                        if v >= num_queries:
-                            v %= num_queries
-                    n += 1
-              
-                """
-                # Method2: find top_k queries for each gt
-                top_k = []
-                for i, c in enumerate(C.split(sizes, -1)):  # split C into a list of tensors c of size: [N, image_num_box]
-                    # both c and i will +1 each loop
-                    top = min(self.cost_top_k, num_queries)  # pick the smaller value between k and num_queries
-                    top_sort = torch.topk(c[i], top, 0, largest=False)  # get the k smallest values in c[i] dimension 0 (querries dim)
-                    # print(top_sort)
-                    indices_columns = top_sort.indices.flatten(0)  # get the indices tensor and then flatten dim 0
-                    # print(indices_columns)
-                    indices_row = torch.arange(c[i].size(1))
-                    indices_rows = indices_row                                    # concat indices_row "top" times in dim 0
-                    for _ in range(top - 1):                                      #
-                        indices_rows = torch.cat((indices_rows, indices_row), 0)  #
-                    # print(indices_rows)
-                    top_k += [(indices_columns, indices_rows)]
-                #print(top_k)
+                if (self.top_K_matching_method == 'bipartite'):
+                    
+                    # Method1: bipartite matching
+                    concat = C
+                    for _ in range(self.cost_top_k - 1):  # stack N cost matrices horizontally (to multiply groundtruths N times)
+                        concat = torch.cat((concat, C), 2)
+                    D = concat
+                    NUM = num_queries
+                    while NUM < (sum(sizes) * self.cost_top_k):  # stack N of the matrix above vertically (if number of groundtruth > number of queries)
+                        concat = torch.cat((concat, D), 1)
+                        NUM += num_queries
+                    sizes_k = list(np.array(sizes) * self.cost_top_k)
+                    top_k_indices = [linear_sum_assignment(c[i]) for i, c in enumerate(concat.split(sizes_k, -1))]
+                    top_k = [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in top_k_indices]
+                    n = 0
+                    # since cost matrix rows and columns were multiply, we % the original rows and columns to get the right coords
+                    for i in top_k:  # cost matrix for each target (i) in a batch (top_k)
+                        for v in i[1]:           # get the right column (groundtruth coord)
+                            if v >= sizes[n]:
+                                v %= sizes[n]
+                        for v in i[0]:           # get the right row (query coord)
+                            if v >= num_queries:
+                                v %= num_queries
+                        n += 1
+                                   
+                
+                elif (self.top_K_matching_method == 'closest'):
+                    
+                    # Method2: find top_k queries for each gt
+                    top_k = []
+                    for i, c in enumerate(C.split(sizes, -1)):  # c[i] will have shape [N, M] (N querries, M groundtruths) for each image
+                        top = min(self.cost_top_k, num_queries)  # pick the smaller value between k and num_queries
+                        top_sort = torch.topk(c[i], top, 0, largest=False)  # get the k smallest values in c[i] dimension 0 (querries dim), top_sort will have shape [k, M]
+                        
+                        indices_columns = top_sort.indices.flatten(0)  # get the indices tensor and then flatten to shape [k * M]
+                        # indices_columns: the collum index for top1 querries for 1->M groungtruths, then top2,...topk
+                        # the only thing we need left is the row index, which is just [1,2,...M] X k times
+
+                        indices_row = torch.arange(c[i].size(1))  # get the enumerated tensor for M (M = 3 ==> indices_row = [0, 1, 2])
+                        indices_rows = indices_row                                    # concat indices_row "top" times in dim 0
+                        for _ in range(top - 1):                                      #
+                            indices_rows = torch.cat((indices_rows, indices_row), 0)  #
+
+                        top_k += [(indices_columns, indices_rows)]  # top_k will have the collum and row indices for the whole batch
+                    
 
 
             return [(torch.as_tensor(i, dtype=torch.int64), torch.as_tensor(j, dtype=torch.int64)) for i, j in indices], top_k
@@ -238,4 +244,5 @@ def build_top_k_matcher(args):
     return HungarianMatcherTopN(cost_class=args.set_cost_class,
                                 cost_bbox=args.set_cost_bbox,
                                 cost_giou=args.set_cost_giou,
-                                cost_top_k=args.set_top_K)
+                                cost_top_k=args.set_top_K,
+                                top_K_matching_method=args.top_K_matching_method)
